@@ -185,6 +185,64 @@ with left:
     fig_bar.update_layout(height=380, margin=dict(l=10, r=10, t=10, b=10))
     st.plotly_chart(fig_bar, use_container_width=True)
 
+# ======================
+# PIE: Emission reductions by Host Country
+# ======================
+st.subheader("Emission Reductions by Host Country (ktCO2e/yr)")
+
+def split_countries(val):
+    if pd.isna(val):
+        return []
+    s = str(val)
+    if ";" in s:
+        toks = [t.strip() for t in s.split(";")]
+        return [t for t in toks if t and t.lower() != "multiple"]
+    return [s.strip()] if s.strip().lower() != "multiple" else []
+
+# Pastikan nama kolom reductions benar (kadang ada spasi depan di Excel)
+if "Reductions (ktCO2e/yr)" not in df.columns and " Reductions (ktCO2e/yr)" in df.columns:
+    df = df.rename(columns={" Reductions (ktCO2e/yr)": "Reductions (ktCO2e/yr)"})
+
+if "Reductions (ktCO2e/yr)" in df.columns and "Host country" in df.columns:
+    pie_df = df.copy()
+
+    # numeric reductions
+    pie_df["reductions"] = pd.to_numeric(pie_df["Reductions (ktCO2e/yr)"], errors="coerce").fillna(0)
+
+    # explode countries
+    pie_df["host_token"] = pie_df["Host country"].apply(split_countries)
+    pie_df = pie_df.explode("host_token")
+    pie_df["host_token"] = pie_df["host_token"].astype(str).str.strip()
+    pie_df = pie_df[pie_df["host_token"].notna() & (pie_df["host_token"] != "")]
+
+    # sum reductions by country
+    red_by_country = (
+        pie_df.groupby("host_token", as_index=False)["reductions"]
+        .sum()
+        .sort_values("reductions", ascending=False)
+    )
+
+    # Top N + Others biar pie chart nggak berantakan
+    topn_pie = st.slider("Top N countries (pie)", 5, 25, 10, 1)
+    top = red_by_country.head(topn_pie)
+    others_sum = red_by_country["reductions"].iloc[topn_pie:].sum()
+
+    if others_sum > 0:
+        top = pd.concat(
+            [top, pd.DataFrame([{"host_token": "Others", "reductions": others_sum}])],
+            ignore_index=True
+        )
+
+    fig_pie = px.pie(
+        top,
+        names="host_token",
+        values="reductions",
+        hole=0.35,  # donut style
+    )
+    fig_pie.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10))
+    st.plotly_chart(fig_pie, use_container_width=True)
+else:
+    st.info("Kolom 'Host country' atau 'Reductions (ktCO2e/yr)' tidak ditemukan di dataset.")
 with right:
     st.subheader("World map (by host party)")
     # Choropleth by activity count
